@@ -1,0 +1,31 @@
+[package]
+name = "bitcoincore-rest"
+version = "0.1.0"
+authors = ["Andrew Toth"]
+license = "MIT"
+homepage = "https://github.com/andrewtoth/rust-bitcoincore-rest/"
+repository = "https://github.com/andrewtoth/rust-bitcoincore-rest/"
+documentation = "https://docs.rs/bitcoincore-rest/"
+description = "Rust REST client for Bitcoin Core REST API"
+keywords = [ "crypto", "bitcoin", "bitcoincore", "rest", "api" ]
+readme = "README.md"
+edition = "2021"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+bitcoin = "0.29"
+bitcoincore-rpc-json = "0.16"
+bytes = "1"
+serde = { version = "1", features = [ "derive" ] }
+
+
+[dev-dependencies]
+bitcoind = { version = "0.27", features = ["23_0"] }
+bitcoincore-rpc = "0.16"
+anyhow = "1"
+tokio = { version = "1.21", features = ["macros"] }
+env_logger = "0.9.0"
+
