@@ -16,14 +16,14 @@ use std::io::{Cursor, Read};
 const BLOCK_HEADER_SIZE: usize = 80usize;
 const BLOCK_FILTER_HEADER_SIZE: usize = 32usize;
 
-/// Holds the endpoint and http client
+/// Creates HTTP requests to bitcoind
 #[derive(Clone)]
 pub struct BitcoinRest {
     client: Client,
     endpoint: String,
 }
 
-/// Response from get_mempool_info
+/// Response from `get_mempool_info`
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct GetMempoolInfoResult {
     pub loaded: bool,
@@ -44,13 +44,14 @@ pub struct GetMempoolInfoResult {
     pub full_rbf: Option<bool>,
 }
 
+/// Sub object containing height and output from `get_utxos`
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Utxo {
     pub height: i32,
     pub output: TxOut,
 }
 
-/// Response from get_utxos
+/// Response from `get_utxos`
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct GetUtxosResult {
     pub chain_height: u32,
@@ -137,8 +138,9 @@ fn decode_utxo(reader: &mut impl Read) -> Result<Utxo, Error> {
 }
 
 impl BitcoinRest {
-    /// Create a new BitcoinRest instance with given endpoint url
-    /// Must be in the format "http://{ip}:{port}/rest/"
+    /// Create a new `BitcoinRest` instance with given endpoint url
+    ///
+    /// Must be in the format `"http://{ip}:{port}/rest/"`
     pub fn new(endpoint: String) -> Self {
         BitcoinRest {
             client: Client::new(),
@@ -146,8 +148,9 @@ impl BitcoinRest {
         }
     }
 
-    /// Create a new BitcoinRest instance with the default endpoint for that network
-    /// For example, Network::Bitcoin creates an instance with "http://localhost:8332/rest/"
+    /// Create a new `BitcoinRest` instance with the default endpoint for that network
+    ///
+    /// For example, [`Network::Bitcoin`] creates an instance with `"http://localhost:8332/rest/"`
     pub fn network_default(network: Network) -> Self {
         let endpoint = match network {
             Network::Bitcoin => "http://localhost:8332/rest/",
@@ -162,7 +165,7 @@ impl BitcoinRest {
         }
     }
 
-    /// Get a response from a json endpoint
+    /// Get a response from a `json` endpoint
     pub async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
         let url = format!("{}{}.json", &self.endpoint, path);
         self.client
@@ -174,7 +177,7 @@ impl BitcoinRest {
             .map_err(|e| Error::ReqwestError(e))
     }
 
-    /// Get a response from a bin endpoint
+    /// Get a response from a `bin` endpoint
     pub async fn get_bin(&self, path: &str) -> Result<Bytes, Error> {
         let url = format!("{}{}.bin", &self.endpoint, path);
         self.client
@@ -187,7 +190,8 @@ impl BitcoinRest {
     }
 
     /// Get a series of block headers beginning from a block hash
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockheaders
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockheaders]
     pub async fn get_block_headers(
         &self,
         start_hash: &BlockHash,
@@ -212,7 +216,8 @@ impl BitcoinRest {
     }
 
     /// Get a block hash at a specific height
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockhash-by-height
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockhash-by-height]
     pub async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Error> {
         let path = &["blockhashbyheight", &height.to_string()].join("/");
         let resp = self.get_bin(path).await?;
@@ -220,23 +225,26 @@ impl BitcoinRest {
     }
 
     /// Get a block by its hash
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blocks
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blocks]
     pub async fn get_block(&self, hash: &BlockHash) -> Result<Block, Error> {
         let path = &["block", &hash.to_hex()].join("/");
         let resp = self.get_bin(path).await?;
         Ok(deserialize(&resp)?)
     }
 
-    /// Get a transaction by its txid
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#transactions
+    /// Get a transaction by its `txid`
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#transactions]
     pub async fn get_transaction(&self, txid: &Txid) -> Result<Transaction, Error> {
         let path = &["tx", &txid.to_hex()].join("/");
         let resp = self.get_bin(path).await?;
         Ok(deserialize(&resp)?)
     }
 
-    /// Get a series of block filter headers beggining from a block hash
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilter-headers
+    /// Get a series of block filter headers beginning from a block hash
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilter-headers]
     pub async fn get_block_filter_headers(
         &self,
         start_hash: &BlockHash,
@@ -263,7 +271,8 @@ impl BitcoinRest {
     }
 
     /// Get a block filter for a given block hash
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilters
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilters]
     pub async fn get_block_filter(&self, hash: &BlockHash) -> Result<BlockFilter, Error> {
         let path = &["blockfilter", "basic", &hash.to_hex()].join("/");
         let resp = self.get_bin(path).await?;
@@ -276,15 +285,18 @@ impl BitcoinRest {
     }
 
     /// Get info on the block chain state
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#chaininfos
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#chaininfos]
     pub async fn get_chain_info(&self) -> Result<GetBlockchainInfoResult, Error> {
         let path = "chaininfo";
         self.get_json(path).await
     }
 
     /// Get utxos for a given set of outpoints
+    ///
     /// Optionally check unconfirmed utxos in the mempool
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#query-utxo-set
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#query-utxo-set]
     pub async fn get_utxos(
         &self,
         outpoints: Vec<OutPoint>,
@@ -305,14 +317,16 @@ impl BitcoinRest {
     }
 
     /// Get info on the mempool state
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool]
     pub async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error> {
         let path = &["mempool", "info"].join("/");
         self.get_json(path).await
     }
 
     /// Get info for every transaction in the mempool
-    /// See https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool
+    ///
+    /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool]
     pub async fn get_mempool(&self) -> Result<HashMap<Txid, GetMempoolEntryResult>, Error> {
         let path = &["mempool", "contents"].join("/");
         self.get_json(path).await
