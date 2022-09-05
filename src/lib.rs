@@ -200,7 +200,7 @@ impl BitcoinRest {
         let path = &["headers", &count.to_string(), &start_hash.to_string()].join("/");
         let resp = self.get_bin(path).await?;
 
-        let mut vec: Vec<BlockHeader> = vec![];
+        let mut vec = Vec::<BlockHeader>::with_capacity(resp.len() / BLOCK_HEADER_SIZE);
         let mut offset = 0;
         while offset < resp.len() {
             vec.push(deserialize(&resp[offset..(offset + BLOCK_HEADER_SIZE)])?);
@@ -259,7 +259,7 @@ impl BitcoinRest {
         .join("/");
         let resp = self.get_bin(path).await?;
 
-        let mut vec: Vec<FilterHeader> = vec![];
+        let mut vec = Vec::<FilterHeader>::with_capacity(resp.len() / BLOCK_FILTER_HEADER_SIZE);
         let mut offset = 0;
         while offset < resp.len() {
             vec.push(deserialize(
@@ -320,7 +320,7 @@ impl BitcoinRest {
     ///
     /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool]
     pub async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error> {
-        let path = &["mempool", "info"].join("/");
+        let path = "mempool/info";
         self.get_json(path).await
     }
 
@@ -328,7 +328,7 @@ impl BitcoinRest {
     ///
     /// See [https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool]
     pub async fn get_mempool(&self) -> Result<HashMap<Txid, GetMempoolEntryResult>, Error> {
-        let path = &["mempool", "contents"].join("/");
+        let path = "mempool/contents";
         self.get_json(path).await
     }
 }

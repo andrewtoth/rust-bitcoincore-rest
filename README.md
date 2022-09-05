@@ -5,7 +5,8 @@ makes it easy to talk to the Bitcoin Core REST interface.
 
 The REST interface is useful for quickly iterating over the blockchain, because
 it can request blocks and transactions in binary form without having to
-serialize/deserialize into JSON and send the larger JSON payload over the wire.
+serialize/deserialize into JSON. It is unauthenticated so there's no need to
+worry about storing credentials.
 
 It also has API for quickly retrieving large amounts of block headers and BIP157
 compact block filter headers. There is also support for getting block chain
@@ -21,7 +22,7 @@ use bitcoin::Block;
 use bitcoin_rest::{BitcoinRest, Error};
 
 async fn get_block(height: u64) -> Result<Block, Error> {
-    let rest = BitcoinRpc::network_default(Network::Bitcoin);
+    let rest = BitcoinRest::network_default(Network::Bitcoin);
     rest.get_block_at_height(height).await
 }
 
