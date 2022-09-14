@@ -22,7 +22,7 @@ use bitcoin::{
 };
 use bitcoincore_rpc_json::{GetBlockchainInfoResult, GetMempoolEntryResult};
 use bytes::Bytes;
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
@@ -76,6 +76,7 @@ pub struct GetUtxosResult {
 
 #[derive(Debug)]
 pub enum Error {
+    NotFoundError,
     ReqwestError(reqwest::Error),
     BitcoinEncodeError(bitcoin::consensus::encode::Error),
 }
@@ -83,6 +84,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
+            Error::NotFoundError => write!(f, "Not found"),
             Error::ReqwestError(ref e) => write!(f, "Reqwest error, {}", e),
             Error::BitcoinEncodeError(ref e) => write!(f, "Bitcoin encode error, {}", e),
         }
@@ -94,6 +96,7 @@ impl std::error::Error for Error {
         use self::Error::*;
 
         match self {
+            NotFoundError => None,
             ReqwestError(e) => Some(e),
             BitcoinEncodeError(e) => Some(e),
         }
@@ -182,10 +185,13 @@ impl BitcoinRest {
     /// Get a response from a `json` endpoint
     pub async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
         let url = format!("{}{}.json", &self.endpoint, path);
-        self.client
-            .get(&url)
-            .send()
-            .await?
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            return Err(Error::NotFoundError);
+        }
+
+        response
             .json::<T>()
             .await
             .map_err(|e| Error::ReqwestError(e))
@@ -194,13 +200,13 @@ impl BitcoinRest {
     /// Get a response from a `bin` endpoint
     pub async fn get_bin(&self, path: &str) -> Result<Bytes, Error> {
         let url = format!("{}{}.bin", &self.endpoint, path);
-        self.client
-            .get(&url)
-            .send()
-            .await?
-            .bytes()
-            .await
-            .map_err(|e| Error::ReqwestError(e))
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() == StatusCode::NOT_FOUND {
+            return Err(Error::NotFoundError);
+        }
+
+        response.bytes().await.map_err(|e| Error::ReqwestError(e))
     }
 
     /// Get a series of block headers beginning from a block hash
@@ -351,6 +357,7 @@ impl BitcoinRest {
 mod tests {
 
     use super::BitcoinRest;
+    use super::Error;
 
     use anyhow::Result;
     use bitcoin::{Amount, OutPoint};
@@ -463,6 +470,13 @@ mod tests {
         } else {
             let utxo = &utxo_result.utxos[2];
             assert_eq!(utxo.output.script_pubkey, address.script_pubkey());
+        }
+
+        let result = bitcoin_rest.get_block_hash((NUM_BLOCKS + 2) as u64).await;
+        match result {
+            Err(Error::NotFoundError) => {}
+            Err(_) => assert!(false),
+            Ok(_) => assert!(false),
         }
 
         Ok(())
