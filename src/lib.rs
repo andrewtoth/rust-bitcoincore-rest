@@ -22,13 +22,12 @@ use bitcoin::{
 };
 use bitcoincore_rpc_json::{GetBlockchainInfoResult, GetMempoolEntryResult};
 use bytes::Bytes;
-use reqwest::{Client, StatusCode};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
-const BLOCK_HEADER_SIZE: usize = 80usize;
-const BLOCK_FILTER_HEADER_SIZE: usize = 32usize;
+pub use reqwest::StatusCode;
 
 /// Creates HTTP requests to bitcoind
 #[derive(Clone)]
@@ -76,7 +75,7 @@ pub struct GetUtxosResult {
 
 #[derive(Debug)]
 pub enum Error {
-    NotFoundError,
+    NotOkError(reqwest::StatusCode),
     ReqwestError(reqwest::Error),
     BitcoinEncodeError(bitcoin::consensus::encode::Error),
 }
@@ -84,7 +83,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            Error::NotFoundError => write!(f, "Not found"),
+            Error::NotOkError(ref e) => write!(f, "Incorrect status code {}", e),
             Error::ReqwestError(ref e) => write!(f, "Reqwest error, {}", e),
             Error::BitcoinEncodeError(ref e) => write!(f, "Bitcoin encode error, {}", e),
         }
@@ -96,7 +95,7 @@ impl std::error::Error for Error {
         use self::Error::*;
 
         match self {
-            NotFoundError => None,
+            NotOkError(_) => None,
             ReqwestError(e) => Some(e),
             BitcoinEncodeError(e) => Some(e),
         }
@@ -187,8 +186,8 @@ impl BitcoinRest {
         let url = format!("{}{}.json", &self.endpoint, path);
         let response = self.client.get(&url).send().await?;
 
-        if response.status() == StatusCode::NOT_FOUND {
-            return Err(Error::NotFoundError);
+        if response.status() != StatusCode::OK {
+            return Err(Error::NotOkError(response.status()));
         }
 
         response
@@ -202,8 +201,8 @@ impl BitcoinRest {
         let url = format!("{}{}.bin", &self.endpoint, path);
         let response = self.client.get(&url).send().await?;
 
-        if response.status() == StatusCode::NOT_FOUND {
-            return Err(Error::NotFoundError);
+        if response.status() != StatusCode::OK {
+            return Err(Error::NotOkError(response.status()));
         }
 
         response.bytes().await.map_err(|e| Error::ReqwestError(e))
@@ -220,11 +219,14 @@ impl BitcoinRest {
         let path = &["headers", &count.to_string(), &start_hash.to_string()].join("/");
         let resp = self.get_bin(path).await?;
 
-        let mut vec = Vec::<BlockHeader>::with_capacity(resp.len() / BLOCK_HEADER_SIZE);
-        let mut offset = 0;
-        while offset < resp.len() {
-            vec.push(deserialize(&resp[offset..(offset + BLOCK_HEADER_SIZE)])?);
-            offset += BLOCK_HEADER_SIZE;
+        const BLOCK_HEADER_SIZE: usize = 80usize;
+        let num = resp.len() / BLOCK_HEADER_SIZE;
+        let mut vec = Vec::<BlockHeader>::with_capacity(num);
+        let mut decoder = Cursor::new(resp);
+        for _ in 0..num {
+            vec.push(BlockHeader::consensus_decode_from_finite_reader(
+                &mut decoder,
+            )?);
         }
         Ok(vec)
     }
@@ -279,13 +281,15 @@ impl BitcoinRest {
         .join("/");
         let resp = self.get_bin(path).await?;
 
-        let mut vec = Vec::<FilterHeader>::with_capacity(resp.len() / BLOCK_FILTER_HEADER_SIZE);
-        let mut offset = 0;
-        while offset < resp.len() {
-            vec.push(deserialize(
-                &resp[offset..(offset + BLOCK_FILTER_HEADER_SIZE)],
+        const BLOCK_FILTER_HEADER_SIZE: usize = 32usize;
+
+        let num = resp.len() / BLOCK_FILTER_HEADER_SIZE;
+        let mut vec = Vec::<FilterHeader>::with_capacity(num);
+        let mut decoder = Cursor::new(resp);
+        for _ in 0..num {
+            vec.push(FilterHeader::consensus_decode_from_finite_reader(
+                &mut decoder,
             )?);
-            offset += BLOCK_FILTER_HEADER_SIZE;
         }
         Ok(vec)
     }
@@ -474,7 +478,9 @@ mod tests {
 
         let result = bitcoin_rest.get_block_hash((NUM_BLOCKS + 2) as u64).await;
         match result {
-            Err(Error::NotFoundError) => {}
+            Err(Error::NotOkError(status)) => {
+                assert_eq!(status, 404)
+            }
             Err(_) => assert!(false),
             Ok(_) => assert!(false),
         }
