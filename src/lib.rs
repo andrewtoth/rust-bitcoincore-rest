@@ -75,7 +75,7 @@ pub struct GetUtxosResult {
 
 #[derive(Debug)]
 pub enum Error {
-    NotOkError(reqwest::StatusCode),
+    NotOkError(StatusCode),
     ReqwestError(reqwest::Error),
     BitcoinEncodeError(bitcoin::consensus::encode::Error),
 }
@@ -360,8 +360,7 @@ impl BitcoinRest {
 #[cfg(test)]
 mod tests {
 
-    use super::BitcoinRest;
-    use super::Error;
+    use super::{BitcoinRest, Error, StatusCode};
 
     use anyhow::Result;
     use bitcoin::{Amount, OutPoint};
@@ -478,9 +477,7 @@ mod tests {
 
         let result = bitcoin_rest.get_block_hash((NUM_BLOCKS + 2) as u64).await;
         match result {
-            Err(Error::NotOkError(status)) => {
-                assert_eq!(status, 404)
-            }
+            Err(Error::NotOkError(StatusCode::NOT_FOUND)) => (),
             Err(_) => assert!(false),
             Ok(_) => assert!(false),
         }
