@@ -190,10 +190,7 @@ impl BitcoinRest {
             return Err(Error::NotOkError(response.status()));
         }
 
-        response
-            .json::<T>()
-            .await
-            .map_err(|e| Error::ReqwestError(e))
+        response.json::<T>().await.map_err(Error::ReqwestError)
     }
 
     /// Get a response from a `bin` endpoint
@@ -205,7 +202,7 @@ impl BitcoinRest {
             return Err(Error::NotOkError(response.status()));
         }
 
-        response.bytes().await.map_err(|e| Error::ReqwestError(e))
+        response.bytes().await.map_err(Error::ReqwestError)
     }
 
     /// Get a series of block headers beginning from a block hash
@@ -337,7 +334,7 @@ impl BitcoinRest {
         let resp = self.get_bin(&path.join("/")).await?;
 
         let mut cursor = Cursor::new(&resp);
-        Ok(decode_utxos_result(&mut cursor)?)
+        decode_utxos_result(&mut cursor)
     }
 
     /// Get info on the mempool state
