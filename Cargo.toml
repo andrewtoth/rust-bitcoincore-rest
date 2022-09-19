@@ -1,6 +1,6 @@
 [package]
 name = "bitcoincore-rest"
-version = "0.1.5"
+version = "1.0.0"
 authors = ["Andrew Toth"]
 license = "MIT"
 homepage = "https://github.com/andrewtoth/rust-bitcoincore-rest/"
@@ -20,6 +20,7 @@ bitcoin = "0.29"
 bitcoincore-rpc-json = "0.16"
 bytes = "1"
 serde = { version = "1", features = [ "derive" ] }
+async-trait = "0.1"
 
 
 [dev-dependencies]

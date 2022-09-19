@@ -12,6 +12,7 @@
 //!
 //! See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md>
 //! for more information.
+use async_trait::async_trait;
 use bitcoin::consensus::encode::{deserialize, Decodable, ReadExt};
 use bitcoin::hashes::hex::ToHex;
 use bitcoin::util::amount::serde::as_btc;
@@ -21,17 +22,18 @@ use bitcoin::{
     Txid, VarInt,
 };
 use bitcoincore_rpc_json::{GetBlockchainInfoResult, GetMempoolEntryResult};
-use bytes::Bytes;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
+pub use bytes::Bytes;
 pub use reqwest::StatusCode;
+pub use serde::Deserialize;
 
 /// Creates HTTP requests to bitcoind
 #[derive(Clone)]
-pub struct BitcoinRest {
+pub struct RestClient {
     client: Client,
     endpoint: String,
 }
@@ -153,18 +155,18 @@ fn decode_utxo(reader: &mut impl Read) -> Result<Utxo, Error> {
     })
 }
 
-impl BitcoinRest {
-    /// Create a new `BitcoinRest` instance with given endpoint url
+impl RestClient {
+    /// Create a new `RestClient` instance with given endpoint url
     ///
     /// Must be in the format `"http://{ip}:{port}/rest/"`
     pub fn new(endpoint: String) -> Self {
-        BitcoinRest {
+        RestClient {
             client: Client::new(),
             endpoint,
         }
     }
 
-    /// Create a new `BitcoinRest` instance with the default endpoint for that network
+    /// Create a new `RestClient` instance with the default endpoint for that network
     ///
     /// For example, [`Network::Bitcoin`] creates an instance with `"http://localhost:8332/rest/"`
     pub fn network_default(network: Network) -> Self {
@@ -175,40 +177,25 @@ impl BitcoinRest {
             Network::Regtest => "http://localhost:18443/rest/",
         };
 
-        BitcoinRest {
+        RestClient {
             client: Client::new(),
             endpoint: endpoint.to_string(),
         }
     }
+}
 
+#[async_trait]
+pub trait RestApi {
     /// Get a response from a `json` endpoint
-    pub async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
-        let url = format!("{}{}.json", &self.endpoint, path);
-        let response = self.client.get(&url).send().await?;
-
-        if response.status() != StatusCode::OK {
-            return Err(Error::NotOkError(response.status()));
-        }
-
-        response.json::<T>().await.map_err(Error::ReqwestError)
-    }
+    async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error>;
 
     /// Get a response from a `bin` endpoint
-    pub async fn get_bin(&self, path: &str) -> Result<Bytes, Error> {
-        let url = format!("{}{}.bin", &self.endpoint, path);
-        let response = self.client.get(&url).send().await?;
-
-        if response.status() != StatusCode::OK {
-            return Err(Error::NotOkError(response.status()));
-        }
-
-        response.bytes().await.map_err(Error::ReqwestError)
-    }
+    async fn get_bin(&self, path: &str) -> Result<Bytes, Error>;
 
     /// Get a series of block headers beginning from a block hash
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockheaders>
-    pub async fn get_block_headers(
+    async fn get_block_headers(
         &self,
         start_hash: &BlockHash,
         count: u32,
@@ -229,7 +216,7 @@ impl BitcoinRest {
     }
 
     /// Convenience function to get a block at a specific height
-    pub async fn get_block_at_height(&self, height: u64) -> Result<Block, Error> {
+    async fn get_block_at_height(&self, height: u64) -> Result<Block, Error> {
         let hash = self.get_block_hash(height).await?;
         self.get_block(&hash).await
     }
@@ -237,7 +224,7 @@ impl BitcoinRest {
     /// Get a block hash at a specific height
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockhash-by-height>
-    pub async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Error> {
+    async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Error> {
         let path = &["blockhashbyheight", &height.to_string()].join("/");
         let resp = self.get_bin(path).await?;
         Ok(deserialize(&resp)?)
@@ -246,7 +233,7 @@ impl BitcoinRest {
     /// Get a block by its hash
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blocks>
-    pub async fn get_block(&self, hash: &BlockHash) -> Result<Block, Error> {
+    async fn get_block(&self, hash: &BlockHash) -> Result<Block, Error> {
         let path = &["block", &hash.to_hex()].join("/");
         let resp = self.get_bin(path).await?;
         Ok(deserialize(&resp)?)
@@ -255,7 +242,7 @@ impl BitcoinRest {
     /// Get a transaction by its `txid`
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#transactions>
-    pub async fn get_transaction(&self, txid: &Txid) -> Result<Transaction, Error> {
+    async fn get_transaction(&self, txid: &Txid) -> Result<Transaction, Error> {
         let path = &["tx", &txid.to_hex()].join("/");
         let resp = self.get_bin(path).await?;
         Ok(deserialize(&resp)?)
@@ -264,7 +251,7 @@ impl BitcoinRest {
     /// Get a series of block filter headers beginning from a block hash
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilter-headers>
-    pub async fn get_block_filter_headers(
+    async fn get_block_filter_headers(
         &self,
         start_hash: &BlockHash,
         count: u32,
@@ -294,7 +281,7 @@ impl BitcoinRest {
     /// Get a block filter for a given block hash
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilters>
-    pub async fn get_block_filter(&self, hash: &BlockHash) -> Result<BlockFilter, Error> {
+    async fn get_block_filter(&self, hash: &BlockHash) -> Result<BlockFilter, Error> {
         let path = &["blockfilter", "basic", &hash.to_hex()].join("/");
         let resp = self.get_bin(path).await?;
         let mut contents: Vec<u8> = vec![];
@@ -308,7 +295,7 @@ impl BitcoinRest {
     /// Get info on the block chain state
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#chaininfos>
-    pub async fn get_chain_info(&self) -> Result<GetBlockchainInfoResult, Error> {
+    async fn get_chain_info(&self) -> Result<GetBlockchainInfoResult, Error> {
         let path = "chaininfo";
         self.get_json(path).await
     }
@@ -318,7 +305,7 @@ impl BitcoinRest {
     /// Optionally check unconfirmed utxos in the mempool
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#query-utxo-set>
-    pub async fn get_utxos(
+    async fn get_utxos(
         &self,
         outpoints: Vec<OutPoint>,
         check_mempool: bool,
@@ -340,7 +327,7 @@ impl BitcoinRest {
     /// Get info on the mempool state
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
-    pub async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error> {
+    async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error> {
         let path = "mempool/info";
         self.get_json(path).await
     }
@@ -348,16 +335,41 @@ impl BitcoinRest {
     /// Get info for every transaction in the mempool
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
-    pub async fn get_mempool(&self) -> Result<HashMap<Txid, GetMempoolEntryResult>, Error> {
+    async fn get_mempool(&self) -> Result<HashMap<Txid, GetMempoolEntryResult>, Error> {
         let path = "mempool/contents";
         self.get_json(path).await
+    }
+}
+
+#[async_trait]
+impl RestApi for RestClient {
+    async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
+        let url = format!("{}{}.json", &self.endpoint, path);
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() != StatusCode::OK {
+            return Err(Error::NotOkError(response.status()));
+        }
+
+        response.json::<T>().await.map_err(Error::ReqwestError)
+    }
+
+    async fn get_bin(&self, path: &str) -> Result<Bytes, Error> {
+        let url = format!("{}{}.bin", &self.endpoint, path);
+        let response = self.client.get(&url).send().await?;
+
+        if response.status() != StatusCode::OK {
+            return Err(Error::NotOkError(response.status()));
+        }
+
+        response.bytes().await.map_err(Error::ReqwestError)
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use super::{BitcoinRest, Error, StatusCode};
+    use super::{Error, RestApi, RestClient, StatusCode};
 
     use anyhow::Result;
     use bitcoin::{Amount, OutPoint};
@@ -386,7 +398,7 @@ mod tests {
 
         let rpc_socket = bitcoind.params.rpc_socket;
 
-        let bitcoin_rest = BitcoinRest::new(format!("http://{}/rest/", rpc_socket.to_string()));
+        let bitcoin_rest = RestClient::new(format!("http://{}/rest/", rpc_socket.to_string()));
 
         let hash = bitcoin_rest.get_block_hash(NUM_BLOCKS as u64).await?;
         assert_eq!(hash, bitcoind.client.get_block_hash(NUM_BLOCKS as u64)?);

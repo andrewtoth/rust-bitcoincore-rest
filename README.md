@@ -19,10 +19,10 @@ line or `rest=1` in the `bitcoin.conf` file.
 
 ```rust
 use bitcoin::Block;
-use bitcoin_rest::{BitcoinRest, Error};
+use bitcoin_rest::{RestClient, Error};
 
 async fn get_block(height: u64) -> Result<Block, Error> {
-    let rest = BitcoinRest::network_default(Network::Bitcoin);
+    let rest = RestClient::network_default(Network::Bitcoin);
     rest.get_block_at_height(height).await
 }
 
