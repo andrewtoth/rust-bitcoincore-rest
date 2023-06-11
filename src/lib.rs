@@ -24,7 +24,7 @@ use bitcoin::{
 use bitcoincore_rpc_json::{GetBlockchainInfoResult, GetMempoolEntryResult};
 use reqwest::Client;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Cursor, Read};
 
 pub use bytes::Bytes;
@@ -296,7 +296,7 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#chaininfos>
     async fn get_chain_info(&self) -> Result<GetBlockchainInfoResult, Error> {
-        let path = "chaininfo";
+        let path = "chaininfo.json";
         self.get_json(path).await
     }
 
@@ -328,7 +328,7 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
     async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error> {
-        let path = "mempool/info";
+        let path = "mempool/info.json";
         self.get_json(path).await
     }
 
@@ -336,7 +336,15 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
     async fn get_mempool(&self) -> Result<HashMap<Txid, GetMempoolEntryResult>, Error> {
-        let path = "mempool/contents";
+        let path = "mempool/contents.json";
+        self.get_json(path).await
+    }
+
+    /// Get txid for every transaction in the mempool
+    ///
+    /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
+    async fn get_mempool_txids(&self) -> Result<HashSet<Txid>, Error> {
+        let path = "mempool/contents.json?verbose=false";
         self.get_json(path).await
     }
 }
@@ -344,7 +352,7 @@ pub trait RestApi {
 #[async_trait]
 impl RestApi for RestClient {
     async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
-        let url = format!("{}{}.json", &self.endpoint, path);
+        let url = format!("{}{}", &self.endpoint, path);
         let response = self.client.get(&url).send().await?;
 
         if response.status() != StatusCode::OK {
