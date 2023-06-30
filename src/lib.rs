@@ -12,24 +12,32 @@
 //!
 //! See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md>
 //! for more information.
-use async_trait::async_trait;
-use bitcoin::consensus::encode::{deserialize, Decodable, ReadExt};
-use bitcoin::hashes::hex::ToHex;
-use bitcoin::util::amount::serde::as_btc;
-use bitcoin::util::bip158::BlockFilter;
-use bitcoin::{
-    Amount, Block, BlockHash, BlockHeader, FilterHeader, Network, OutPoint, Transaction, TxOut,
-    Txid, VarInt,
+use std::{
+    collections::HashMap,
+    io::{Cursor, Read},
 };
-use bitcoincore_rpc_json::{GetBlockchainInfoResult, GetMempoolEntryResult};
-use reqwest::Client;
-use serde::Serialize;
-use std::collections::HashMap;
-use std::io::{Cursor, Read};
 
+use async_trait::async_trait;
+pub use bitcoin::Network;
+use bitcoin::{
+    bip158::BlockFilter,
+    block::Header,
+    consensus::encode::{deserialize, Decodable, ReadExt},
+    hash_types::FilterHeader,
+    Block, BlockHash, OutPoint, Transaction, Txid, VarInt,
+};
+use bitcoincore_rpc_json::{GetBlockchainInfoResult, GetMempoolEntryResult, GetMempoolInfoResult};
 pub use bytes::Bytes;
+use reqwest::Client;
 pub use reqwest::StatusCode;
+use responses::{
+    deployment_info::GetDeploymentInfoResult,
+    get_utxos::{GetUtxosResult, Utxo},
+};
 pub use serde::Deserialize;
+use serde::Serialize;
+
+pub mod responses;
 
 /// Creates HTTP requests to bitcoind
 #[derive(Clone)]
@@ -38,41 +46,11 @@ pub struct RestClient {
     endpoint: String,
 }
 
-/// Response from `get_mempool_info`
+/// Response from `get_mempool_txids_and_sequence`
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
-pub struct GetMempoolInfoResult {
-    pub loaded: bool,
-    pub size: u64,
-    pub bytes: u64,
-    pub usage: u64,
-    #[serde(with = "as_btc")]
-    pub total_fee: Amount,
-    #[serde(rename = "maxmempool")]
-    pub max_mempool: u64,
-    #[serde(rename = "mempoolminfee", with = "as_btc")]
-    pub mempool_min_fee: Amount,
-    #[serde(rename = "minrelaytxfee", with = "as_btc")]
-    pub min_relay_tx_fee: Amount,
-    #[serde(rename = "unbroadcastcount")]
-    pub unbroadcast_count: u64,
-    #[serde(rename = "fullrbf")]
-    pub full_rbf: Option<bool>,
-}
-
-/// Sub object containing height and output from `get_utxos`
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Utxo {
-    pub height: i32,
-    pub output: TxOut,
-}
-
-/// Response from `get_utxos`
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct GetUtxosResult {
-    pub chain_height: u32,
-    pub chain_tip_hash: BlockHash,
-    pub bitmap: Vec<u8>,
-    pub utxos: Vec<Utxo>,
+pub struct GetMempoolTxidsAndSequenceResult {
+    pub txids: Vec<Txid>,
+    pub mempool_sequence: u64,
 }
 
 #[derive(Debug)]
@@ -159,10 +137,10 @@ impl RestClient {
     /// Create a new `RestClient` instance with given endpoint url
     ///
     /// Must be in the format `"http://{ip}:{port}/rest/"`
-    pub fn new(endpoint: String) -> Self {
+    pub fn new(endpoint: impl Into<String>) -> Self {
         RestClient {
             client: Client::new(),
-            endpoint,
+            endpoint: endpoint.into(),
         }
     }
 
@@ -171,10 +149,10 @@ impl RestClient {
     /// For example, [`Network::Bitcoin`] creates an instance with `"http://localhost:8332/rest/"`
     pub fn network_default(network: Network) -> Self {
         let endpoint = match network {
-            Network::Bitcoin => "http://localhost:8332/rest/",
             Network::Testnet => "http://localhost:18332/rest/",
             Network::Signet => "http://localhost:38332/rest/",
             Network::Regtest => "http://localhost:18443/rest/",
+            _ => "http://localhost:8332/rest/",
         };
 
         RestClient {
@@ -199,18 +177,16 @@ pub trait RestApi {
         &self,
         start_hash: &BlockHash,
         count: u32,
-    ) -> Result<Vec<BlockHeader>, Error> {
-        let path = &["headers", &count.to_string(), &start_hash.to_string()].join("/");
-        let resp = self.get_bin(path).await?;
+    ) -> Result<Vec<Header>, Error> {
+        let path = format!("headers/{count}/{start_hash}.bin",);
+        let resp = self.get_bin(&path).await?;
 
         const BLOCK_HEADER_SIZE: usize = 80usize;
         let num = resp.len() / BLOCK_HEADER_SIZE;
-        let mut vec = Vec::<BlockHeader>::with_capacity(num);
+        let mut vec = Vec::<Header>::with_capacity(num);
         let mut decoder = Cursor::new(resp);
         for _ in 0..num {
-            vec.push(BlockHeader::consensus_decode_from_finite_reader(
-                &mut decoder,
-            )?);
+            vec.push(Header::consensus_decode_from_finite_reader(&mut decoder)?);
         }
         Ok(vec)
     }
@@ -225,8 +201,8 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockhash-by-height>
     async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Error> {
-        let path = &["blockhashbyheight", &height.to_string()].join("/");
-        let resp = self.get_bin(path).await?;
+        let path = format!("blockhashbyheight/{height}.bin");
+        let resp = self.get_bin(&path).await?;
         Ok(deserialize(&resp)?)
     }
 
@@ -234,8 +210,8 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blocks>
     async fn get_block(&self, hash: &BlockHash) -> Result<Block, Error> {
-        let path = &["block", &hash.to_hex()].join("/");
-        let resp = self.get_bin(path).await?;
+        let path = format!("block/{hash}.bin");
+        let resp = self.get_bin(&path).await?;
         Ok(deserialize(&resp)?)
     }
 
@@ -243,8 +219,8 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#transactions>
     async fn get_transaction(&self, txid: &Txid) -> Result<Transaction, Error> {
-        let path = &["tx", &txid.to_hex()].join("/");
-        let resp = self.get_bin(path).await?;
+        let path = format!("tx/{txid}.bin");
+        let resp = self.get_bin(&path).await?;
         Ok(deserialize(&resp)?)
     }
 
@@ -256,14 +232,8 @@ pub trait RestApi {
         start_hash: &BlockHash,
         count: u32,
     ) -> Result<Vec<FilterHeader>, Error> {
-        let path = &[
-            "blockfilterheaders",
-            "basic",
-            &count.to_string(),
-            &start_hash.to_hex(),
-        ]
-        .join("/");
-        let resp = self.get_bin(path).await?;
+        let path = format!("blockfilterheaders/basic/{count}/{start_hash}.bin");
+        let resp = self.get_bin(&path).await?;
 
         const BLOCK_FILTER_HEADER_SIZE: usize = 32usize;
 
@@ -282,8 +252,8 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilters>
     async fn get_block_filter(&self, hash: &BlockHash) -> Result<BlockFilter, Error> {
-        let path = &["blockfilter", "basic", &hash.to_hex()].join("/");
-        let resp = self.get_bin(path).await?;
+        let path = format!("blockfilter/basic/{hash}.bin");
+        let resp = self.get_bin(&path).await?;
         let mut contents: Vec<u8> = vec![];
         let mut cursor = Cursor::new(&resp);
         cursor
@@ -296,7 +266,7 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#chaininfos>
     async fn get_chain_info(&self) -> Result<GetBlockchainInfoResult, Error> {
-        let path = "chaininfo";
+        let path = "chaininfo.json";
         self.get_json(path).await
     }
 
@@ -318,7 +288,9 @@ pub trait RestApi {
         for outpoint in outpoints {
             path.push([outpoint.txid.to_string(), outpoint.vout.to_string()].join("-"));
         }
-        let resp = self.get_bin(&path.join("/")).await?;
+        let mut path = path.join("/");
+        path.push_str(".bin");
+        let resp = self.get_bin(&path).await?;
 
         let mut cursor = Cursor::new(&resp);
         decode_utxos_result(&mut cursor)
@@ -328,7 +300,7 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
     async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error> {
-        let path = "mempool/info";
+        let path = "mempool/info.json";
         self.get_json(path).await
     }
 
@@ -336,7 +308,36 @@ pub trait RestApi {
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
     async fn get_mempool(&self) -> Result<HashMap<Txid, GetMempoolEntryResult>, Error> {
-        let path = "mempool/contents";
+        let path = "mempool/contents.json";
+        self.get_json(path).await
+    }
+
+    /// Get the txid for every transaction in the mempool
+    /// Only available on Bitcoin Core v25.0.0 and later
+    ///
+    /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
+    async fn get_mempool_txids(&self) -> Result<Vec<Txid>, Error> {
+        let path = "mempool/contents.json?verbose=false";
+        self.get_json(path).await
+    }
+
+    /// Get the txid for every transaction in the mempool and the mempool sequence
+    /// Only available on Bitcoin Core v25.0.0 and later
+    ///
+    /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#memory-pool>
+    async fn get_mempool_txids_and_sequence(
+        &self,
+    ) -> Result<GetMempoolTxidsAndSequenceResult, Error> {
+        let path = "mempool/contents.json?mempool_sequence=true&verbose=false";
+        self.get_json(path).await
+    }
+
+    /// Get soft fork deployment status info
+    /// Only available on Bitcoin Core v25.0.0 and later
+    ///
+    /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#deployment-info>
+    async fn get_deployment_info(&self) -> Result<GetDeploymentInfoResult, Error> {
+        let path = "deploymentinfo.json";
         self.get_json(path).await
     }
 }
@@ -344,7 +345,7 @@ pub trait RestApi {
 #[async_trait]
 impl RestApi for RestClient {
     async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
-        let url = format!("{}{}.json", &self.endpoint, path);
+        let url = format!("{}{}", &self.endpoint, path);
         let response = self.client.get(&url).send().await?;
 
         if response.status() != StatusCode::OK {
@@ -355,7 +356,7 @@ impl RestApi for RestClient {
     }
 
     async fn get_bin(&self, path: &str) -> Result<Bytes, Error> {
-        let url = format!("{}{}.bin", &self.endpoint, path);
+        let url = format!("{}{}", &self.endpoint, path);
         let response = self.client.get(&url).send().await?;
 
         if response.status() != StatusCode::OK {
@@ -372,10 +373,8 @@ mod tests {
     use super::{Error, RestApi, RestClient, StatusCode};
 
     use anyhow::Result;
-    use bitcoin::{Amount, OutPoint};
-    use bitcoincore_rpc::RpcApi;
-    use bitcoind::{downloaded_exe_path, BitcoinD, Conf};
-    use env_logger;
+    use bitcoin::{Amount, Network, OutPoint};
+    use bitcoind::{bitcoincore_rpc::RpcApi, downloaded_exe_path, BitcoinD, Conf};
 
     const NUM_BLOCKS: u32 = 101;
 
@@ -390,73 +389,107 @@ mod tests {
             "-regtest",
             "-fallbackfee=0.0001",
         ];
-        let bitcoind = BitcoinD::with_conf(downloaded_exe_path()?, &conf)?;
-        let address = bitcoind.client.get_new_address(None, None)?;
+        let bitcoind = BitcoinD::with_conf(downloaded_exe_path().unwrap(), &conf).unwrap();
+        let address = bitcoind
+            .client
+            .get_new_address(None, None)
+            .unwrap()
+            .require_network(Network::Regtest)
+            .unwrap();
         bitcoind
             .client
-            .generate_to_address(NUM_BLOCKS as u64, &address)?;
+            .generate_to_address(NUM_BLOCKS as u64, &address)
+            .unwrap();
 
         let rpc_socket = bitcoind.params.rpc_socket;
 
-        let bitcoin_rest = RestClient::new(format!("http://{}/rest/", rpc_socket.to_string()));
+        let bitcoin_rest = RestClient::new(format!("http://{}/rest/", rpc_socket));
 
-        let hash = bitcoin_rest.get_block_hash(NUM_BLOCKS as u64).await?;
-        assert_eq!(hash, bitcoind.client.get_block_hash(NUM_BLOCKS as u64)?);
+        let hash = bitcoin_rest
+            .get_block_hash(NUM_BLOCKS as u64)
+            .await
+            .unwrap();
+        assert_eq!(
+            hash,
+            bitcoind.client.get_block_hash(NUM_BLOCKS as u64).unwrap()
+        );
 
-        let block = bitcoin_rest.get_block_at_height(NUM_BLOCKS as u64).await?;
-        assert_eq!(block, bitcoind.client.get_block(&hash)?);
-        assert_eq!(block, bitcoin_rest.get_block(&hash).await?);
+        let block = bitcoin_rest
+            .get_block_at_height(NUM_BLOCKS as u64)
+            .await
+            .unwrap();
+        assert_eq!(block, bitcoind.client.get_block(&hash).unwrap());
+        assert_eq!(block, bitcoin_rest.get_block(&hash).await.unwrap());
 
-        let first_hash = bitcoin_rest.get_block_hash(0).await?;
+        let first_hash = bitcoin_rest.get_block_hash(0).await.unwrap();
         let headers = bitcoin_rest
             .get_block_headers(&first_hash, NUM_BLOCKS)
-            .await?;
+            .await
+            .unwrap();
         assert_eq!(headers.len(), NUM_BLOCKS as usize);
         assert_eq!(headers[1].prev_blockhash, first_hash);
 
         let filter_headers = bitcoin_rest
             .get_block_filter_headers(&first_hash, NUM_BLOCKS)
-            .await?;
+            .await
+            .unwrap();
         assert_eq!(filter_headers.len(), NUM_BLOCKS as usize);
 
-        let _ = bitcoin_rest.get_block_filter(&hash).await?;
+        let _ = bitcoin_rest.get_block_filter(&hash).await.unwrap();
 
-        let txid = bitcoind.client.send_to_address(
-            &address,
-            Amount::ONE_BTC,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let txid2 = bitcoind.client.send_to_address(
-            &address,
-            Amount::from_btc(0.5)?,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
+        let txid = bitcoind
+            .client
+            .send_to_address(
+                &address,
+                Amount::ONE_BTC,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let txid2 = bitcoind
+            .client
+            .send_to_address(
+                &address,
+                Amount::from_btc(0.5)?,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
 
-        let chain_info = bitcoin_rest.get_chain_info().await?;
+        let chain_info = bitcoin_rest.get_chain_info().await.unwrap();
         assert_eq!(chain_info.chain, "regtest");
         assert_eq!(chain_info.blocks, NUM_BLOCKS as u64);
         assert_eq!(chain_info.best_block_hash, hash);
 
-        let mempool_info = bitcoin_rest.get_mempool_info().await?;
-        assert_eq!(mempool_info.loaded, true);
+        let deployment_info = bitcoin_rest.get_deployment_info().await.unwrap();
+        assert_eq!(deployment_info.hash, hash);
+        assert_eq!(deployment_info.height, NUM_BLOCKS);
+
+        let mempool_info = bitcoin_rest.get_mempool_info().await.unwrap();
+        assert!(mempool_info.loaded);
         assert_eq!(mempool_info.size, 2);
 
-        let mempool = bitcoin_rest.get_mempool().await?;
+        let mempool = bitcoin_rest.get_mempool().await.unwrap();
         assert_eq!(mempool.len(), 2);
         let entry = mempool.get(&txid);
         assert_ne!(entry, None);
 
-        let tx = bitcoin_rest.get_transaction(&txid).await?;
+        let txids = bitcoin_rest.get_mempool_txids().await.unwrap();
+        assert_eq!(txids, vec![txid, txid2]);
+
+        let txids_and_sequence = bitcoin_rest.get_mempool_txids_and_sequence().await.unwrap();
+        assert_eq!(txids_and_sequence.txids, vec![txid, txid2]);
+        assert_eq!(txids_and_sequence.mempool_sequence, 3);
+
+        let tx = bitcoin_rest.get_transaction(&txid).await.unwrap();
         assert_eq!(tx.txid(), txid);
 
         let outpoints = vec![
@@ -465,19 +498,22 @@ mod tests {
             OutPoint::new(txid2, 0),
             OutPoint::new(txid2, 1),
         ];
-        let utxo_result = bitcoin_rest.get_utxos(outpoints.clone(), true).await?;
+        let utxo_result = bitcoin_rest
+            .get_utxos(outpoints.clone(), true)
+            .await
+            .unwrap();
         assert_eq!(utxo_result.chain_height, NUM_BLOCKS);
         assert_eq!(utxo_result.chain_tip_hash, hash);
         assert_eq!(utxo_result.utxos.len(), 3);
         let utxo = &utxo_result.utxos[0];
         assert_eq!(utxo.height, i32::MAX);
 
-        bitcoind.client.generate_to_address(1, &address)?;
-        let utxo_result = bitcoin_rest.get_utxos(outpoints, true).await?;
+        bitcoind.client.generate_to_address(1, &address).unwrap();
+        let utxo_result = bitcoin_rest.get_utxos(outpoints, true).await.unwrap();
         let utxo = &utxo_result.utxos[0];
         assert_eq!(utxo.height, (NUM_BLOCKS + 1) as i32);
         let utxo = &utxo_result.utxos[1];
-        if Amount::from_sat(utxo.output.value) == Amount::from_btc(0.5)? {
+        if Amount::from_sat(utxo.output.value) == Amount::from_btc(0.5).unwrap() {
             assert_eq!(utxo.output.script_pubkey, address.script_pubkey());
         } else {
             let utxo = &utxo_result.utxos[2];
@@ -487,8 +523,8 @@ mod tests {
         let result = bitcoin_rest.get_block_hash((NUM_BLOCKS + 2) as u64).await;
         match result {
             Err(Error::NotOkError(StatusCode::NOT_FOUND)) => (),
-            Err(_) => assert!(false),
-            Ok(_) => assert!(false),
+            Err(_) => panic!(),
+            Ok(_) => panic!(),
         }
 
         Ok(())

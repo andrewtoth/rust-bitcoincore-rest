@@ -1,13 +1,13 @@
 [package]
 name = "bitcoincore-rest"
-version = "1.0.0"
+version = "2.0.0"
 authors = ["Andrew Toth"]
 license = "MIT"
 homepage = "https://github.com/andrewtoth/rust-bitcoincore-rest/"
 repository = "https://github.com/andrewtoth/rust-bitcoincore-rest/"
 documentation = "https://docs.rs/bitcoincore-rest/"
 description = "Rust REST client for Bitcoin Core REST API"
-keywords = [ "crypto", "bitcoin", "bitcoincore", "rest", "api" ]
+keywords = ["crypto", "bitcoin", "bitcoincore", "rest", "api"]
 readme = "README.md"
 edition = "2021"
 
@@ -15,18 +15,19 @@ edition = "2021"
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
-bitcoin = "0.29"
-bitcoincore-rpc-json = "0.16"
-bytes = "1"
-serde = { version = "1", features = [ "derive" ] }
 async-trait = "0.1"
+bitcoin = "0.30"
+bitcoincore-rpc-json = "0.17"
+bytes = "1"
+reqwest = { version = "0.11", features = [
+    "json",
+    "rustls-tls",
+], default-features = false }
+serde = { version = "1", features = ["derive"] }
 
 
 [dev-dependencies]
-bitcoind = { version = "0.27", features = ["23_0"] }
-bitcoincore-rpc = "0.16"
 anyhow = "1"
+bitcoind = { version = "0.32.0", features = ["25_0"] }
+env_logger = "0.10"
 tokio = { version = "1.21", features = ["macros"] }
-env_logger = "0.9.0"
-
