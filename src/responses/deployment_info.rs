@@ -1,3 +1,5 @@
+//! Response types for `get_deployment_info`.
+
 use std::collections::HashMap;
 
 use bitcoin::BlockHash;

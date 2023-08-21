@@ -1,3 +1,5 @@
+//! Response types for `get_utxos`.
+
 use bitcoin::{BlockHash, TxOut};
 use serde::{Deserialize, Serialize};
 

@@ -1,10 +1,15 @@
+//! Response types for REST endpoints that aren't in
+//! [`rust-bitcoincore-rpc`](rust-bitcoincore-rpc).
+
+use bitcoin::Txid;
+use serde::{Deserialize, Serialize};
+
 pub mod deployment_info;
 pub mod get_utxos;
 
-pub use bitcoin::{
-    bip158::BlockFilter, block::Header, hash_types::FilterHeader, Block, BlockHash, Network,
-    OutPoint, Transaction, TxOut, Txid, VarInt,
-};
-pub use bitcoincore_rpc_json::{
-    GetBlockchainInfoResult, GetMempoolEntryResult, GetMempoolInfoResult,
-};
+/// Response from `get_mempool_txids_and_sequence`
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct GetMempoolTxidsAndSequenceResult {
+    pub txids: Vec<Txid>,
+    pub mempool_sequence: u64,
+}

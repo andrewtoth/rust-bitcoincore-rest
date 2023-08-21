@@ -11,6 +11,10 @@ keywords = ["crypto", "bitcoin", "bitcoincore", "rest", "api"]
 readme = "README.md"
 edition = "2021"
 
+[features]
+default = ["use-reqwest"]
+use-reqwest = ["reqwest", "url"]
+
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -19,15 +23,16 @@ async-trait = "0.1"
 bitcoin = "0.30"
 bitcoincore-rpc-json = "0.17"
 bytes = "1"
+http = "0.2.9"
 reqwest = { version = "0.11", features = [
     "json",
     "rustls-tls",
-], default-features = false }
+], default-features = false, optional = true }
 serde = { version = "1", features = ["derive"] }
+url = { version = "2.4.0", optional = true }
 
 
 [dev-dependencies]
-anyhow = "1"
 bitcoind = { version = "0.32.0", features = ["25_0"] }
 env_logger = "0.10"
 tokio = { version = "1.21", features = ["macros"] }
