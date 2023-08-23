@@ -1,6 +1,6 @@
 [package]
 name = "bitcoincore-rest"
-version = "3.0.0"
+version = "3.0.1"
 authors = ["Andrew Toth"]
 license = "MIT"
 homepage = "https://github.com/andrewtoth/rust-bitcoincore-rest/"
