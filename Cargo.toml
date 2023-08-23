@@ -16,6 +16,7 @@ default = ["use-reqwest"]
 use-reqwest = ["reqwest", "url"]
 
 [package.metadata.docs.rs]
+features = ["use-reqwest"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
