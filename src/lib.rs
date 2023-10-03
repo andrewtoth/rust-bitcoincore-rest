@@ -100,14 +100,6 @@ impl From<bitcoin::consensus::encode::Error> for Error {
     }
 }
 
-fn read_bytes(reader: &mut impl Read, num: usize) -> Result<Vec<u8>, Error> {
-    let mut ret = Vec::with_capacity(num);
-    for _ in 0..num {
-        ret.push(reader.read_u8()?);
-    }
-    Ok(ret)
-}
-
 /// Implements all the REST API calls for Bitcoin Core, except
 /// [`get_json`](RestApi::get_json) and [`get_bin`](RestApi::get_bin).
 ///
@@ -128,7 +120,7 @@ pub trait RestApi {
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockheaders>
     async fn get_block_headers(
         &self,
-        start_hash: &BlockHash,
+        start_hash: BlockHash,
         count: u32,
     ) -> Result<Vec<Header>, Error> {
         let path = format!("rest/headers/{count}/{start_hash}.bin",);
@@ -147,7 +139,7 @@ pub trait RestApi {
     /// Convenience function to get a block at a specific height
     async fn get_block_at_height(&self, height: u64) -> Result<Block, Error> {
         let hash = self.get_block_hash(height).await?;
-        self.get_block(&hash).await
+        self.get_block(hash).await
     }
 
     /// Get a block hash at a specific height
@@ -162,7 +154,7 @@ pub trait RestApi {
     /// Get a block by its hash
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blocks>
-    async fn get_block(&self, hash: &BlockHash) -> Result<Block, Error> {
+    async fn get_block(&self, hash: BlockHash) -> Result<Block, Error> {
         let path = format!("rest/block/{hash}.bin");
         let resp = self.get_bin(&path).await?;
         Ok(deserialize(&resp)?)
@@ -171,7 +163,7 @@ pub trait RestApi {
     /// Get a transaction by its `txid`
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#transactions>
-    async fn get_transaction(&self, txid: &Txid) -> Result<Transaction, Error> {
+    async fn get_transaction(&self, txid: Txid) -> Result<Transaction, Error> {
         let path = format!("rest/tx/{txid}.bin");
         let resp = self.get_bin(&path).await?;
         Ok(deserialize(&resp)?)
@@ -182,7 +174,7 @@ pub trait RestApi {
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilter-headers>
     async fn get_block_filter_headers(
         &self,
-        start_hash: &BlockHash,
+        start_hash: BlockHash,
         count: u32,
     ) -> Result<Vec<FilterHeader>, Error> {
         let path = format!("rest/blockfilterheaders/basic/{count}/{start_hash}.bin");
@@ -204,7 +196,7 @@ pub trait RestApi {
     /// Get a block filter for a given block hash
     ///
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#blockfilters>
-    async fn get_block_filter(&self, hash: &BlockHash) -> Result<BlockFilter, Error> {
+    async fn get_block_filter(&self, hash: BlockHash) -> Result<BlockFilter, Error> {
         let path = format!("rest/blockfilter/basic/{hash}.bin");
         let resp = self.get_bin(&path).await?;
         let mut contents: Vec<u8> = vec![];
@@ -230,7 +222,7 @@ pub trait RestApi {
     /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#query-utxo-set>
     async fn get_utxos(
         &self,
-        outpoints: Vec<OutPoint>,
+        outpoints: &[OutPoint],
         check_mempool: bool,
     ) -> Result<GetUtxosResult, Error> {
         let mut path = Vec::with_capacity(1 + if check_mempool { 1 } else { 0 } + outpoints.len());
@@ -390,6 +382,14 @@ fn decode_utxo(reader: &mut impl Read) -> Result<Utxo, Error> {
     })
 }
 
+fn read_bytes(reader: &mut impl Read, num: usize) -> Result<Vec<u8>, Error> {
+    let mut ret = Vec::with_capacity(num);
+    for _ in 0..num {
+        ret.push(reader.read_u8()?);
+    }
+    Ok(ret)
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -441,23 +441,23 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(block, bitcoind.client.get_block(&hash).unwrap());
-        assert_eq!(block, bitcoin_rest.get_block(&hash).await.unwrap());
+        assert_eq!(block, bitcoin_rest.get_block(hash).await.unwrap());
 
         let first_hash = bitcoin_rest.get_block_hash(0).await.unwrap();
         let headers = bitcoin_rest
-            .get_block_headers(&first_hash, NUM_BLOCKS)
+            .get_block_headers(first_hash, NUM_BLOCKS)
             .await
             .unwrap();
         assert_eq!(headers.len(), NUM_BLOCKS as usize);
         assert_eq!(headers[1].prev_blockhash, first_hash);
 
         let filter_headers = bitcoin_rest
-            .get_block_filter_headers(&first_hash, NUM_BLOCKS)
+            .get_block_filter_headers(first_hash, NUM_BLOCKS)
             .await
             .unwrap();
         assert_eq!(filter_headers.len(), NUM_BLOCKS as usize);
 
-        let _ = bitcoin_rest.get_block_filter(&hash).await.unwrap();
+        let _ = bitcoin_rest.get_block_filter(hash).await.unwrap();
 
         let txid = bitcoind
             .client
@@ -511,19 +511,16 @@ mod tests {
         assert_eq!(txids_and_sequence.txids, vec![txid, txid2]);
         assert_eq!(txids_and_sequence.mempool_sequence, 3);
 
-        let tx = bitcoin_rest.get_transaction(&txid).await.unwrap();
+        let tx = bitcoin_rest.get_transaction(txid).await.unwrap();
         assert_eq!(tx.txid(), txid);
 
-        let outpoints = vec![
+        let outpoints = [
             OutPoint::new(txid, 0),
             OutPoint::new(txid, 1),
             OutPoint::new(txid2, 0),
             OutPoint::new(txid2, 1),
         ];
-        let utxo_result = bitcoin_rest
-            .get_utxos(outpoints.clone(), true)
-            .await
-            .unwrap();
+        let utxo_result = bitcoin_rest.get_utxos(&outpoints, true).await.unwrap();
         assert_eq!(utxo_result.chain_height, NUM_BLOCKS);
         assert_eq!(utxo_result.chain_tip_hash, hash);
         assert_eq!(utxo_result.utxos.len(), 3);
@@ -531,7 +528,7 @@ mod tests {
         assert_eq!(utxo.height, i32::MAX);
 
         bitcoind.client.generate_to_address(1, &address).unwrap();
-        let utxo_result = bitcoin_rest.get_utxos(outpoints, true).await.unwrap();
+        let utxo_result = bitcoin_rest.get_utxos(&outpoints, true).await.unwrap();
         let utxo = &utxo_result.utxos[0];
         assert_eq!(utxo.height, (NUM_BLOCKS + 1) as i32);
         let utxo = &utxo_result.utxos[1];
