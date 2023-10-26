@@ -13,7 +13,7 @@ edition = "2021"
 
 
 [package.metadata.docs.rs]
-features = ["use-reqwest"]
+all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]

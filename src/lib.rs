@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! A Rust REST client library for calling the Bitcoin Core REST API. It
 //! makes it easy to talk to the Bitcoin Core REST interface.
 //!
