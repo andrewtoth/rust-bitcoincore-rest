@@ -1,5 +1,5 @@
 //! Response types for REST endpoints that aren't in
-//! [`bitcoincore_rpc_json`](bitcoincore_rpc_json).
+//! [`bitcoincore_rpc_json`].
 
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};

@@ -42,10 +42,15 @@ use serde::Deserialize;
 #[cfg(feature = "use-reqwest")]
 use url::Url;
 
+#[doc(hidden)]
 pub use bitcoin;
+#[doc(hidden)]
 pub use bitcoincore_rpc_json;
+#[doc(hidden)]
 pub use bytes;
+#[doc(hidden)]
 pub use http;
+#[doc(hidden)]
 pub use serde;
 
 /// Error type for RestApi responses.
@@ -54,6 +59,7 @@ pub enum Error {
     BitcoinEncodeError(bitcoin::consensus::encode::Error),
     NotOkError(StatusCode),
     #[cfg(feature = "use-reqwest")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
     ReqwestError(reqwest::Error),
     #[cfg(not(feature = "use-reqwest"))]
     CustomError(Box<dyn std::error::Error>),
@@ -65,6 +71,7 @@ impl std::fmt::Display for Error {
             Error::BitcoinEncodeError(ref e) => write!(f, "Bitcoin encode error, {e}"),
             Error::NotOkError(ref e) => write!(f, "Incorrect status code {e}"),
             #[cfg(feature = "use-reqwest")]
+            #[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
             Error::ReqwestError(ref e) => write!(f, "Reqwest error, {e}"),
             #[cfg(not(feature = "use-reqwest"))]
             Error::CustomError(ref e) => write!(f, "Custom error, {}", e),
@@ -80,6 +87,7 @@ impl std::error::Error for Error {
             BitcoinEncodeError(e) => Some(e),
             NotOkError(_) => None,
             #[cfg(feature = "use-reqwest")]
+            #[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
             ReqwestError(e) => Some(e),
             #[cfg(not(feature = "use-reqwest"))]
             CustomError(e) => Some(e.as_ref()),
@@ -88,6 +96,7 @@ impl std::error::Error for Error {
 }
 
 #[cfg(feature = "use-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
 impl From<reqwest::Error> for Error {
     fn from(err: reqwest::Error) -> Self {
         Self::ReqwestError(err)
@@ -344,6 +353,7 @@ impl RestClient {
 }
 
 #[cfg(feature = "use-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
 #[async_trait]
 impl RestApi for RestClient {
     async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
