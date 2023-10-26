@@ -285,12 +285,29 @@ pub trait RestApi {
         let path = "rest/deploymentinfo.json";
         self.get_json(path).await
     }
+
+    /// Get soft fork deployment status info
+    /// Only available on Bitcoin Core v25.1.0 and later
+    ///
+    /// WARNING: CALLING THIS CONNECTED TO BITCOIN CORE V25.0 WILL CRASH BITCOIND
+    ///
+    /// IT IS MARKED UNSAFE TO ENSURE YOU ARE NOT USING BITCOIN CORE V25.0
+    ///
+    /// See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md#deployment-info>
+    async unsafe fn get_deployment_info_at_block(
+        &self,
+        hash: BlockHash,
+    ) -> Result<GetDeploymentInfoResult, Error> {
+        let path = format!("rest/deploymentinfo/{hash}.json");
+        self.get_json(&path).await
+    }
 }
 
 /// Creates HTTP REST requests to bitcoind.
 ///
-/// See [`RestApi`](RestApi) for the available methods.
+/// See [`RestApi`] for the available methods.
 #[cfg(feature = "use-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
 #[derive(Clone)]
 pub struct RestClient {
     client: Client,
@@ -298,6 +315,7 @@ pub struct RestClient {
 }
 
 #[cfg(feature = "use-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
 impl RestClient {
     /// Create a new `RestClient` instance with given endpoint url
     pub fn new(endpoint: impl IntoUrl) -> Result<Self, Error> {
@@ -492,6 +510,11 @@ mod tests {
         assert_eq!(chain_info.best_block_hash, hash);
 
         let deployment_info = bitcoin_rest.get_deployment_info().await.unwrap();
+        assert_eq!(deployment_info.hash, hash);
+        assert_eq!(deployment_info.height, NUM_BLOCKS);
+
+        let deployment_info =
+            unsafe { bitcoin_rest.get_deployment_info_at_block(hash).await }.unwrap();
         assert_eq!(deployment_info.hash, hash);
         assert_eq!(deployment_info.height, NUM_BLOCKS);
 
