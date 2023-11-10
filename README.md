@@ -27,7 +27,7 @@ cargo add bitcoincore-rest
 Or add the following line to your Cargo.toml:
 
 ```toml
-bitcoincore-rest = "4.0.1"
+bitcoincore-rest = "4.0.2"
 ```
 
 ### Usage
@@ -113,7 +113,7 @@ and implement your own version of `RestApi`, set `default-features = false` in
 your `Cargo.toml`:
 
 ```toml
-bitcoincore-rest = { version = "4.0.1", default-features = false }
+bitcoincore-rest = { version = "4.0.2", default-features = false }
 ```
 
 You will have to implement the `get_json` and `get_bin` methods on `RestApi`

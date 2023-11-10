@@ -105,7 +105,7 @@
 //! your `Cargo.toml`:
 //!
 //! ```toml
-//! bitcoincore-rest = { version = "4.0.1", default-features = false }
+//! bitcoincore-rest = { version = "4.0.2", default-features = false }
 //! ```
 //!
 //! You will have to implement the `get_json` and `get_bin` methods on `RestApi`
