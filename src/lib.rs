@@ -13,29 +13,185 @@
 //!
 //! See <https://github.com/bitcoin/bitcoin/blob/master/doc/REST-interface.md>
 //! for more information.
+//!
+//! # Usage
+//!
+//! The Bitcoin Core bitcoind instance must be started with `-rest` on the command
+//! line or `rest=1` in the `bitcoin.conf` file.
+//!
+#![cfg_attr(not(feature = "use-reqwest"), doc = "```ignore")]
+#![cfg_attr(feature = "use-reqwest", doc = "```rust")]
+//! use bitcoincore_rest::prelude::*;
+//!
+//! async fn get_block(height: u64) -> Result<Block, Error> {
+//!     let rest = RestClient::network_default(Network::Bitcoin);
+//!     rest.get_block_at_height(height).await
+//! }
+//!
+//! ```
+//!
+//! # API
+//!
+//! Unfortunately, `async_trait` trait functions are expanded in docsrs, so here are
+//! the unexpanded functions for `RestApi`, which `RestClient` implements:
+//!
+//! ```rust
+//! use std::collections::HashMap;
+//!
+//! use bitcoincore_rest::prelude::*;
+//!
+//! #[async_trait::async_trait]
+//! pub trait RestApi {
+//!     async fn get_block_headers(
+//!         &self,
+//!         start_hash: BlockHash,
+//!         count: u32,
+//!     ) -> Result<Vec<Header>, Error>;
+//!
+//!     async fn get_block_at_height(&self, height: u64) -> Result<Block, Error>;
+//!
+//!     async fn get_block_hash(&self, height: u64) -> Result<BlockHash, Error>;
+//!
+//!     async fn get_block(&self, hash: BlockHash) -> Result<Block, Error>;
+//!
+//!     async fn get_transaction(&self, txid: Txid) -> Result<Transaction, Error>;
+//!
+//!     async fn get_block_filter_headers(
+//!         &self,
+//!         start_hash: BlockHash,
+//!         count: u32,
+//!     ) -> Result<Vec<FilterHeader>, Error>;
+//!
+//!     async fn get_block_filter(&self, hash: BlockHash) -> Result<BlockFilter, Error>;
+//!
+//!     async fn get_chain_info(&self) -> Result<GetBlockchainInfoResult, Error>;
+//!
+//!     async fn get_utxos(
+//!         &self,
+//!         outpoints: &[OutPoint],
+//!         check_mempool: bool,
+//!     ) -> Result<GetUtxosResult, Error>;
+//!
+//!     async fn get_mempool_info(&self) -> Result<GetMempoolInfoResult, Error>;
+//!
+//!     async fn get_mempool(&self) -> Result<HashMap<Txid, GetMempoolEntryResult>, Error>;
+//!
+//!     async fn get_mempool_txids(&self) -> Result<Vec<Txid>, Error>;
+//!
+//!     async fn get_mempool_txids_and_sequence(
+//!         &self,
+//!     ) -> Result<GetMempoolTxidsAndSequenceResult, Error>;
+//!
+//!     async fn get_deployment_info(&self) -> Result<GetDeploymentInfoResult, Error>;
+//!
+//!     /// Only available on Bitcoin Core v25.1 and later
+//!     ///
+//!     /// WARNING: CALLING THIS CONNECTED TO BITCOIN CORE V25.0 WILL CRASH BITCOIND
+//!     ///
+//!     /// IT IS MARKED UNSAFE TO ENSURE YOU ARE NOT USING BITCOIN CORE V25.0
+//!     async unsafe fn get_deployment_info_at_block(
+//!         &self,
+//!         hash: BlockHash,
+//!     ) -> Result<GetDeploymentInfoResult, Error>;
+//! }
+//!
+//! ```
+//!
+//! # Features
+//!
+//! By default, this library includes a struct `RestClient` which implements
+//! `RestApi` by using the `reqwest` library. To not use `reqwest` as a dependency
+//! and implement your own version of `RestApi`, set `default-features = false` in
+//! your `Cargo.toml`:
+//!
+//! ```toml
+//! bitcoincore-rest = { version = "4.0.1", default-features = false }
+//! ```
+//!
+//! You will have to implement the `get_json` and `get_bin` methods on `RestApi`
+//! with your own http functionality. All methods are `GET` requests. For example,
+//! using the [`surf`](https://docs.rs/surf/latest/surf/) http library and
+//! [`thiserror`](https://docs.rs/thiserror/latest/thiserror/):
+//!
+#![cfg_attr(not(feature = "use-reqwest"), doc = "```rust")]
+#![cfg_attr(feature = "use-reqwest", doc = "```ignore")]
+//! use bitcoincore_rest::{
+//!     async_trait::async_trait, bytes::Bytes, serde::Deserialize, Error, RestApi,
+//! };
+//!
+//! #[derive(thiserror::Error, Debug)]
+//! pub enum SurfError {
+//!     #[error("surf error")]
+//!     Surf(surf::Error),
+//! }
+//!
+//! struct NewClient;
+//!
+//! #[async_trait]
+//! impl RestApi for NewClient {
+//!     async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
+//!         surf::get(format!("http://localhost:8332/{path}"))
+//!             .recv_json()
+//!             .await
+//!             .map_err(|e| Error::CustomError(Box::new(SurfError::Surf(e))))
+//!     }
+//!
+//!     async fn get_bin(&self, path: &str) -> Result<Bytes, Error> {
+//!         surf::get(format!("http://localhost:8332/{path}"))
+//!             .recv_bytes()
+//!             .await
+//!             .map_err(|e| Error::CustomError(Box::new(SurfError::Surf(e))))
+//!             .map(Bytes::from)
+//!     }
+//! }
+//! ```
+//!
+//!
 use std::{
     collections::HashMap,
     io::{Cursor, Read},
 };
 
+/// Error type for RestApi responses.
+pub mod error;
 pub mod responses;
+/// Prelude includes RestClient and RestApi, and all parameter and return types
+pub mod prelude {
+    #[cfg(feature = "use-reqwest")]
+    pub use super::RestClient;
+    pub use super::{
+        responses::{GetDeploymentInfoResult, GetMempoolTxidsAndSequenceResult, GetUtxosResult},
+        Error, RestApi,
+    };
+    pub use bitcoin::{
+        bip158::BlockFilter, block::Header, hash_types::FilterHeader, Block, BlockHash, Network,
+        OutPoint, Transaction, Txid,
+    };
+    pub use bitcoincore_rpc_json::{
+        GetBlockchainInfoResult, GetMempoolEntryResult, GetMempoolInfoResult,
+    };
+}
 
+#[doc(inline)]
+pub use crate::error::Error;
 use crate::responses::{
     deployment_info::GetDeploymentInfoResult,
     get_utxos::{GetUtxosResult, Utxo},
     GetMempoolTxidsAndSequenceResult,
 };
 
-use async_trait::async_trait;
+#[cfg(feature = "use-reqwest")]
+use bitcoin::Network;
 use bitcoin::{
     bip158::BlockFilter,
     block::Header,
     consensus::encode::{deserialize, Decodable, ReadExt},
     hash_types::FilterHeader,
-    Block, BlockHash, Network, OutPoint, Transaction, Txid, VarInt,
+    Block, BlockHash, OutPoint, Transaction, Txid, VarInt,
 };
 use bitcoincore_rpc_json::{GetBlockchainInfoResult, GetMempoolEntryResult, GetMempoolInfoResult};
 use bytes::Bytes;
+#[cfg(feature = "use-reqwest")]
 use http::StatusCode;
 #[cfg(feature = "use-reqwest")]
 use reqwest::{Client, IntoUrl};
@@ -44,71 +200,23 @@ use serde::Deserialize;
 use url::Url;
 
 #[doc(hidden)]
+#[cfg(not(feature = "use-reqwest"))]
+pub use async_trait;
+#[doc(hidden)]
+#[cfg(not(feature = "use-reqwest"))]
 pub use bitcoin;
 #[doc(hidden)]
+#[cfg(not(feature = "use-reqwest"))]
 pub use bitcoincore_rpc_json;
 #[doc(hidden)]
+#[cfg(not(feature = "use-reqwest"))]
 pub use bytes;
 #[doc(hidden)]
+#[cfg(not(feature = "use-reqwest"))]
 pub use http;
 #[doc(hidden)]
+#[cfg(not(feature = "use-reqwest"))]
 pub use serde;
-
-/// Error type for RestApi responses.
-#[derive(Debug)]
-pub enum Error {
-    BitcoinEncodeError(bitcoin::consensus::encode::Error),
-    NotOkError(StatusCode),
-    #[cfg(feature = "use-reqwest")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
-    ReqwestError(reqwest::Error),
-    #[cfg(not(feature = "use-reqwest"))]
-    CustomError(Box<dyn std::error::Error>),
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
-            Error::BitcoinEncodeError(ref e) => write!(f, "Bitcoin encode error, {e}"),
-            Error::NotOkError(ref e) => write!(f, "Incorrect status code {e}"),
-            #[cfg(feature = "use-reqwest")]
-            #[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
-            Error::ReqwestError(ref e) => write!(f, "Reqwest error, {e}"),
-            #[cfg(not(feature = "use-reqwest"))]
-            Error::CustomError(ref e) => write!(f, "Custom error, {}", e),
-        }
-    }
-}
-
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        use self::Error::*;
-
-        match self {
-            BitcoinEncodeError(e) => Some(e),
-            NotOkError(_) => None,
-            #[cfg(feature = "use-reqwest")]
-            #[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
-            ReqwestError(e) => Some(e),
-            #[cfg(not(feature = "use-reqwest"))]
-            CustomError(e) => Some(e.as_ref()),
-        }
-    }
-}
-
-#[cfg(feature = "use-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
-impl From<reqwest::Error> for Error {
-    fn from(err: reqwest::Error) -> Self {
-        Self::ReqwestError(err)
-    }
-}
-
-impl From<bitcoin::consensus::encode::Error> for Error {
-    fn from(err: bitcoin::consensus::encode::Error) -> Self {
-        Self::BitcoinEncodeError(err)
-    }
-}
 
 /// Implements all the REST API calls for Bitcoin Core, except
 /// [`get_json`](RestApi::get_json) and [`get_bin`](RestApi::get_bin).
@@ -117,7 +225,7 @@ impl From<bitcoin::consensus::encode::Error> for Error {
 /// [`RestClient`](RestClient), but this dependency can be removed by using
 /// `default-features = false` in `Cargo.toml` and implementing `RestApi`
 /// yourself.
-#[async_trait]
+#[async_trait::async_trait]
 pub trait RestApi {
     /// Get a response from a `json` endpoint
     async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error>;
@@ -355,7 +463,7 @@ impl RestClient {
 
 #[cfg(feature = "use-reqwest")]
 #[cfg_attr(docsrs, doc(cfg(feature = "use-reqwest")))]
-#[async_trait]
+#[async_trait::async_trait]
 impl RestApi for RestClient {
     async fn get_json<T: for<'a> Deserialize<'a>>(&self, path: &str) -> Result<T, Error> {
         let url = self.endpoint.join(path).unwrap();
@@ -419,7 +527,7 @@ fn read_bytes(reader: &mut impl Read, num: usize) -> Result<Vec<u8>, Error> {
     Ok(ret)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "use-reqwest"))]
 mod tests {
 
     use super::{Error, RestApi, RestClient, StatusCode};
